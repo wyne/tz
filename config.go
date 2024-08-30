@@ -18,74 +18,117 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"strings"
 	"time"
 )
 
-// Config stores app configuration
-type Config struct {
-	Zones []*Zone
+// Keymaps represents the key mappings in the TOML file
+type Keymaps struct {
+	PrevHour   []string
+	NextHour   []string
+	PrevDay    []string
+	NextDay    []string
+	PrevWeek   []string
+	NextWeek   []string
+	ToggleDate []string
+	OpenWeb    []string
+	Now        []string
 }
 
-// LoadConfig from environment
-func LoadConfig(tzConfigs []string) (*Config, error) {
-	conf := Config{
+// Config stores app configuration
+type Config struct {
+	Zones   []*Zone
+	Keymaps Keymaps
+}
+
+// Function to provide default values for the Config struct
+func NewDefaultConfig() Config {
+	return Config{
 		Zones: DefaultZones,
+		Keymaps: Keymaps{
+			PrevHour:   []string{"h", "left"},
+			NextHour:   []string{"l", "right"},
+			PrevDay:    []string{"k", "up"},
+			NextDay:    []string{"j", "down"},
+			PrevWeek:   []string{"p"},
+			NextWeek:   []string{"n"},
+			ToggleDate: []string{"d"},
+			OpenWeb:    []string{"o"},
+			Now:        []string{"t"},
+		},
+	}
+}
+
+func LoadConfig(tzConfigs []string) (Config, error) {
+	// Apply config file first
+	fileConfig, fileError := LoadConfigFile()
+	if fileError != nil {
+		panic(fileError)
 	}
 
-	if len(tzConfigs) == 0 {
-		tzList := os.Getenv("TZ_LIST")
-		if tzList == "" {
-			return &conf, nil
-		}
-		tzConfigs = strings.Split(tzList, ";")
-		if len(tzConfigs) == 0 {
-			return &conf, nil
-		}
-	}
-	zones := make([]*Zone, len(tzConfigs)+1)
+	// Override with env var config
+	envConfig, _ := LoadConfigEnv(tzConfigs)
+
+	// Merge configs, with envConfig taking precedence
+	mergedConfig := NewDefaultConfig()
+
+	var zones []*Zone
 
 	// Setup with Local time zone
 	localZoneName, _ := time.Now().Zone()
-	zones[0] = &Zone{
+	zones = append(zones, &Zone{
 		Name:   fmt.Sprintf("(%s) Local", localZoneName),
 		DbName: localZoneName,
+	})
+
+	// Merge Zones
+	if len(envConfig.Zones) > 0 {
+		zones = append(zones, envConfig.Zones...)
+	} else if len(fileConfig.Zones) > 0 {
+		zones = append(zones, fileConfig.Zones...)
 	}
 
-	// Add zones from TZ_LIST
-	for i, zoneConf := range tzConfigs {
-		zone, err := SetupZone(time.Now(), zoneConf)
-		if err != nil {
-			return nil, err
-		}
-		zones[i+1] = zone
-	}
-	conf.Zones = zones
+	mergedConfig.Zones = zones
 
-	return &conf, nil
-}
+	logger.Printf("File zones: %s", fileConfig.Zones)
+	logger.Printf("Env zones: %s", envConfig.Zones)
+	logger.Printf("Merged zones: %s", mergedConfig.Zones)
 
-// SetupZone from current time and a zoneConf string
-func SetupZone(now time.Time, zoneConf string) (*Zone, error) {
-	names := strings.Split(zoneConf, ",")
-	dbName := strings.Trim(names[0], " ")
-	var name string
-	if len(names) == 2 {
-		name = names[1]
+	// Merge Keymaps
+	if len(fileConfig.Keymaps.PrevHour) > 0 {
+		mergedConfig.Keymaps.PrevHour = fileConfig.Keymaps.PrevHour
 	}
 
-	loc, err := time.LoadLocation(dbName)
-	if err != nil {
-		return nil, fmt.Errorf("looking up zone %s: %w", dbName, err)
+	if len(fileConfig.Keymaps.NextHour) > 0 {
+		mergedConfig.Keymaps.NextHour = fileConfig.Keymaps.NextHour
 	}
-	if name == "" {
-		name = loc.String()
+
+	if len(fileConfig.Keymaps.PrevDay) > 0 {
+		mergedConfig.Keymaps.PrevDay = fileConfig.Keymaps.PrevDay
 	}
-	then := now.In(loc)
-	shortName, _ := then.Zone()
-	return &Zone{
-		DbName: loc.String(),
-		Name:   fmt.Sprintf("(%s) %s", shortName, name),
-	}, nil
+
+	if len(fileConfig.Keymaps.NextDay) > 0 {
+		mergedConfig.Keymaps.NextDay = fileConfig.Keymaps.NextDay
+	}
+
+	if len(fileConfig.Keymaps.PrevWeek) > 0 {
+		mergedConfig.Keymaps.PrevWeek = fileConfig.Keymaps.PrevWeek
+	}
+
+	if len(fileConfig.Keymaps.NextWeek) > 0 {
+		mergedConfig.Keymaps.NextWeek = fileConfig.Keymaps.NextWeek
+	}
+
+	if len(fileConfig.Keymaps.ToggleDate) > 0 {
+		mergedConfig.Keymaps.ToggleDate = fileConfig.Keymaps.ToggleDate
+	}
+
+	if len(fileConfig.Keymaps.OpenWeb) > 0 {
+		mergedConfig.Keymaps.OpenWeb = fileConfig.Keymaps.OpenWeb
+	}
+
+	if len(fileConfig.Keymaps.Now) > 0 {
+		mergedConfig.Keymaps.Now = fileConfig.Keymaps.Now
+	}
+
+	return mergedConfig, nil
 }

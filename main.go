@@ -73,6 +73,7 @@ func openInTimeAndDateDotCom(t time.Time) error {
 
 type model struct {
 	zones       []*Zone
+	keymaps     Keymaps
 	clock       Clock
 	showDates   bool
 	interactive bool
@@ -91,43 +92,53 @@ func (m model) Init() tea.Cmd {
 	return tick()
 }
 
+func match(input string, options []string) bool {
+	for _, option := range options {
+		if input == option {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q", "esc":
+		switch {
+
+		case msg.String() == "ctrl+c", msg.String() == "q", msg.String() == "esc":
 			return m, tea.Quit
 
-		case "left", "h":
+		case match(msg.String(), m.keymaps.PrevHour):
 			m.clock.AddHours(-1)
 
-		case "right", "l":
+		case match(msg.String(), m.keymaps.NextHour):
 			m.clock.AddHours(1)
 
-		case "H":
+		case match(msg.String(), m.keymaps.PrevDay):
 			m.clock.AddDays(-1)
 
-		case "L":
+		case match(msg.String(), m.keymaps.NextDay):
 			m.clock.AddDays(1)
 
-		case "<":
+		case match(msg.String(), m.keymaps.PrevWeek):
 			m.clock.AddDays(-7)
 
-		case ">":
+		case match(msg.String(), m.keymaps.NextWeek):
 			m.clock.AddDays(7)
 
-		case "o":
+		case match(msg.String(), m.keymaps.OpenWeb):
 			openInTimeAndDateDotCom(m.clock.Time())
 
-		case "t":
+		case match(msg.String(), m.keymaps.Now):
 			m.clock = *NewClock(0)
 
-		case "?":
-			m.showHelp = !m.showHelp
-
-		case "d":
+		case match(msg.String(), m.keymaps.ToggleDate):
 			m.showDates = !m.showDates
+
+		case msg.String() == "?":
+			m.showHelp = !m.showHelp
 		}
 
 	case tickMsg:
@@ -140,6 +151,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func main() {
+	SetupLogger()
+	logger.Println("Startup")
+
 	exitQuick := flag.Bool("q", false, "exit immediately")
 	showVersion := flag.Bool("v", false, "show version")
 	when := flag.Int64("when", 0, "time in seconds since unix epoch")
@@ -164,17 +178,20 @@ func main() {
 	}
 
 	config, err := LoadConfig(flag.Args())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Config error: %s\n", err)
-		os.Exit(2)
-	}
+
 	var initialModel = model{
 		zones:      config.Zones,
+		keymaps:    config.Keymaps,
 		clock:      *NewClock(0),
 		showDates:  false,
 		isMilitary: *military,
 		watch:      *watch,
 		showHelp:   false,
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Config error: %s\n", err)
+		os.Exit(2)
 	}
 
 	if *when != 0 {
